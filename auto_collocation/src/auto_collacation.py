@@ -1,9 +1,11 @@
+# -*- coding: utf-8 -*-
 import pdb
 import re
 import codecs
 import nltk
 from os import walk
 import pickle
+import math
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -11,8 +13,6 @@ import numpy as np
     \uff10-\uff19 gbk numbers;
     \uff0c \uff01 gbk ',', '!';
 '''
-PATTERN=ur'[\u4e00-\u9fff\uff10-\uff19\uff0c\uff01\u3002]+'
-SEPARATER=ur'[\uff0c\uff01\u3002]+'
 
 
 def tagger(t, combination):
@@ -81,29 +81,6 @@ def load_data(mypath):
     return word_tagged_set, combinations, wordpair_set
 
 
-def process_data(data):
-    ( word_tagged_set, wordpair_set ) = data
-    print set([tag for (word, tag ) in word_tagged_set])
-    tag_fd = nltk.FreqDist((word, tag) for (word, tag) in word_tagged_set if tag != 'W')
-    wordpair_fd = nltk.FreqDist( (a[0], b[0]) for (a, b) in wordpair_set if ((a[1] != 'W') and (b[1] != 'W')))
-    #print tag_fd.most_common(100)
-    list_ = [  word[0].encode('utf-8') for ( word, _) in tag_fd.most_common(100)  ] 
-    print ' '.join(list_)
-    list_pair = [  ' '.join([ word[0].encode('utf-8'), word[1].encode('utf-8'), '%d'%_]) for ( word, _) in wordpair_fd.most_common(100)  ] 
-    print '\n'.join(list_pair)
-    #for (word1,word2), in wordpair_fd.most_common(100): 
-     #   if word[1] != 'W':
-      #      print  word[0].encode('utf-8'),word[1] , _
-   # print [ for (word, count) in wordpair_fd.most_common()]
-    ''' for line in fd:
-                single_sentence = []
-                for matched in re.findall(PATTERN,text):
-                    if matched == re.match(SEPARATER, matched): 
-                        single_sentence = []
-        '''   # print text.encode('utf-8')
- #           for i in text.split(' ') if i]
-  #          wordset.append(text.split(' ').)
-    return word_tagged_set
 def statistics(word_tagged_set, combinations):
     tag_total_fd = nltk.ConditionalFreqDist( (tag, word) for (word, tag) in word_tagged_set) 
     print combinations
@@ -123,34 +100,63 @@ def statistics(word_tagged_set, combinations):
     plt.ylabel('Number of Words')
     plt.show()
 
-def frequency(word_tagged_set, wordpair_set, combinations):
-    #tags = set([tag for (word, tag ) in word_tagged_set]+ [tag for (word, tag) in combinations])
+def frequency(word_tagged_set, wordpair_set, combinations, outpath):
     common_set = set(['U','P','R','M', 'Q', 'T'])
     wordpair_fd = nltk.FreqDist( (a[0],b[0], a[1], b[1]) for (a, b) in wordpair_set) 
     tag_combination_fd = nltk.FreqDist( (word, tag) for (word, tag) in combinations)
     # Naively rank all biagram pairs
     naive_counts = [ ' '.join(list(collocation)+['%d'%count]) for (collocation ,count) in  wordpair_fd.most_common(100)]
-    # Filter those collocation with less sense
+    # Filter those collocation with less sense, quantity collocations
     filter_counts = [ ' '.join(list(collocation)+['%d'%count]) for (collocation ,count) in  wordpair_fd.most_common() if (( collocation[2] not in common_set) and ( collocation[3] not in common_set)) ]
     # count bigram pair frequency by tag type
     wordpair_conditional_fd = nltk.ConditionalFreqDist( (' '.join([ a[1],b[1] ]), ' '.join([ a[0],b[0] ])) for (a, b) in wordpair_set )
     category_rank = sorted([ (wordpair_conditional_fd[index].N(), index) for index in wordpair_conditional_fd.conditions() ], reverse=True)
     # Get most frequent meaningful collocation by type
     categoryList = [ ':\n'.join([ st, '\n'.join([ '%s %d'%(word, count)  for (word, count) in wordpair_conditional_fd[st].most_common(10) ]) ]) for (i, st) in category_rank[0:10]  ]
-    #print '\n'.join(categoryList).encode('utf-8')
-    #print '\n'.join( [ '%d %s'%(i, st) for (i, st) in category_rank])
-    #print '\n'.join(filter_counts).encode('utf-8')
-     
+    with open('%s.col_by_tag'%outpath, 'w') as fd:
+        fd.write('\n'.join(categoryList).encode('utf-8'))
+    with open('%s.category_rank'%outpath, 'w') as fd:
+        fd.write('\n'.join( [ '%d %s'%(i, st) for (i, st) in category_rank]))
+    with open('%s.rm_quant_tags_rank'%outpath, 'w') as fd:
+        fd.write('\n'.join(filter_counts).encode('utf-8'))
+    with open('%s.unfiltered_rank'%outpath, 'w') as fd:
+        fd.write('\n'.join(naive_counts).encode('utf-8'))
+
+def mutual_information(word_tagged_set, wordpair_set, combinations, outpath):
+    exclude_set = set(['P','M','QG'])
+    pair_by_word = nltk.FreqDist( ( a[0],b[0] ) for (a, b) in wordpair_set if ((a[1] not in exclude_set) and (b[1] not in exclude_set))) 
+    freqDict = nltk.ConditionalFreqDist((word , 1)  for (word, tag) in word_tagged_set )
+    pair_counts = len(wordpair_set)
+    word_counts = len(word_tagged_set)
+    # count mutual information for all bigram pairs
+    mutual_values = [ ( math.log((count*1.0/pair_counts)/(count1*count2)*(word_counts**2)),[ word1,word2, count1,count2, count] ) for ((word1, word2), count) in pair_by_word.most_common() for (t1, count1) in freqDict[word1].most_common() for (t2, count2) in freqDict[word2].most_common()]
+    mutual_values_descend = sorted(mutual_values, reverse = True)
+    with open('%s.tag_filtered'%outpath, 'w') as fd:
+        fd.write("\t".join([ "互信息", "词组", "C(w1)","C(w2)","C(w1,w2)"]))
+        fd.write("\n")
+        fd.write("\n".join([ "\t".join( ["%.8lf"%val]+ [word1.encode("utf-8"), word2.encode("utf-8"), "%d"%count1, "%d"%count2, "%d"%count]) for (val, [ word1, word2, count1, count2, count ]) in mutual_values_descend]))
+    # retrieve mutual information for bigram pairs of frequency 20
+    frequency_twenty_mutuals = [(val, [ word1, word2, count1, count2, count ]) for (val, [ word1, word2, count1, count2, count ]) in mutual_values if count == 20]
+    frequency_twenty_mutuals_descend = sorted(frequency_twenty_mutuals, reverse = True)    
+    with open('%s.count_filtered'%outpath, 'w') as fd:
+        fd.write("\t".join([ "互信息", "词组", "C(w1)","C(w2)","C(w1,w2)"]))
+        fd.write("\n")
+        fd.write("\n".join([ "\t".join( ["%.8lf"%val]+ [word1.encode("utf-8"), word2.encode("utf-8"), "%d"%count1, "%d"%count2, "%d"%count]) for (val, [ word1, word2, count1, count2, count ]) in frequency_twenty_mutuals_descend]))
+
 if __name__ == '__main__':
     input_path = '../data/input'
     preprocessed_path = '../data/output/processed_data.pkl'
+    frequency_path = '../data/output/frequency'
+    mutual_path = '../data/output/mutual'
     #word_tagged_set, combinations, wordpair_set = load_data(input_path)
     print 'Write to module file %s'%preprocessed_path
     #saveToFile((word_tagged_set, combinations,  wordpair_set), preprocessed_path)
     print 'Load from module file %s'%preprocessed_path
     (word_tagged_set,combinations, wordpair_set) = loadFromFile(preprocessed_path)
+    dist = nltk.FreqDist((words, tag) for (words, tag) in combinations)
+    print '\n'.join([ words.encode("utf-8")+" "+ tag+" %d"%_  for ((words, tag),_) in dist.most_common()])
     #statistics(word_tagged_set, combinations)
-    frequency(word_tagged_set,wordpair_set, combinations)
-    print '\n\n\nPrint all bigram words...'
+    #frequency(word_tagged_set,wordpair_set, combinations, frequency_path)
+    #mutual_information(word_tagged_set,wordpair_set, combinations, mutual_path)
+    #print '\n\n\nPrint all bigram words...'
     #printBigramTupleList( wordpair_set )
-    #print wordset
