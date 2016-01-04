@@ -1,0 +1,13 @@
+DT # a # 0.666667
+DT # the # 0.333333
+IN # with # 1.000000
+NN # boy # 0.333333
+NN # girl # 0.333333
+NN # telescope # 0.333333
+NP # DT NN # 0.857143
+NP # NP PP # 0.142857
+PP # IN NP # 1.000000
+S # NP VP # 1.000000
+VBD # saw # 1.000000
+VP # VBD NP # 0.666667
+VP # VP PP # 0.333333
